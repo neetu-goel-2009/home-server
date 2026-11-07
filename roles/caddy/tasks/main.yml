@@ -1,0 +1,44 @@
+---
+- name: Ensure Caddy configuration directory exists
+  ansible.builtin.file:
+    path: "{{ caddy_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+- name: Create website content directories
+  ansible.builtin.file:
+    path: "{{ storage_paths.app_data }}/{{ item.upstream.split(':')[0] }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ website_sites }}"
+- name: Add placeholder index only when no site content exists
+  ansible.builtin.copy:
+    dest: "{{ storage_paths.app_data }}/{{ item.upstream.split(':')[0] }}/index.html"
+    content: "<!doctype html><title>{{ item.hostname }}</title><h1>{{ item.hostname }}</h1><p>Replace this placeholder with your site.</p>\n"
+    owner: root
+    group: root
+    mode: '0644'
+    force: false
+  loop: "{{ website_sites }}"
+- name: Render Caddy host routing
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: "{{ caddy_config_dir }}/Caddyfile"
+    owner: root
+    group: root
+    mode: '0644'
+- name: Render Caddy Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ caddy_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0640'
+- name: Start Caddy and example website containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ caddy_config_dir }}"
+    state: present
+    pull: missing

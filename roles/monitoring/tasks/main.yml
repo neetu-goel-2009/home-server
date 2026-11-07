@@ -1,0 +1,59 @@
+---
+- name: Create monitoring configuration, data and metric directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ monitoring_config_dir }}", owner: root, group: root, mode: '0750'}
+    - {path: "{{ monitoring_data_dir }}/prometheus", owner: '65534', group: '65534', mode: '0750'}
+    - {path: "{{ uptime_kuma_data_dir }}", owner: '1000', group: '1000', mode: '0750'}
+    - {path: /var/lib/node_exporter/textfile_collector, owner: root, group: root, mode: '0755'}
+- name: Install Prometheus scrape configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_config_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: '0644'
+- name: Install Docker health metrics collector
+  ansible.builtin.template:
+    src: container-health-metrics.sh.j2
+    dest: /usr/local/sbin/home-server-container-metrics
+    owner: root
+    group: root
+    mode: '0750'
+- name: Install Docker health metrics systemd service
+  ansible.builtin.template:
+    src: home-container-metrics.service.j2
+    dest: /etc/systemd/system/home-container-metrics.service
+    owner: root
+    group: root
+    mode: '0644'
+- name: Install Docker health metrics systemd timer
+  ansible.builtin.template:
+    src: home-container-metrics.timer.j2
+    dest: /etc/systemd/system/home-container-metrics.timer
+    owner: root
+    group: root
+    mode: '0644'
+- name: Enable Docker health metrics timer
+  ansible.builtin.systemd:
+    name: home-container-metrics.timer
+    daemon_reload: true
+    enabled: true
+    state: started
+- name: Install monitoring Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ monitoring_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0640'
+- name: Start private monitoring services
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_config_dir }}"
+    state: present
+    pull: missing

@@ -1,0 +1,7 @@
+# Reference only: configure these public hostnames in the Cloudflare dashboard.
+# The remotely managed tunnel uses its dashboard routes, not this file.
+public_hostnames:
+{% for route in cloudflare_tunnel_ingress %}
+  - hostname: "{{ route.hostname }}"
+    service: "{{ route.service }}"
+{% endfor %}

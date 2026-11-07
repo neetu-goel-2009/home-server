@@ -1,0 +1,47 @@
+name: home-postgres
+services:
+  postgres:
+    image: "{{ postgresql_image }}"
+    container_name: "{{ postgresql_container_name }}"
+    restart: unless-stopped
+    init: true
+    user: "{{ postgresql_uid }}:{{ postgresql_uid }}"
+    mem_limit: "{{ postgresql_memory_limit }}"
+    cpus: 1.5
+    shm_size: 64mb
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - "{{ postgresql_data_dir }}:/var/lib/postgresql/data"
+      - "{{ postgresql_config_dir }}/postgresql.conf:/etc/postgresql/postgresql.conf:ro"
+    secrets:
+      - postgres_superuser_password
+    networks:
+      - home-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: {{ postgresql_health_interval }}
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+networks:
+  home-db:
+    external: true
+    name: home-db
+
+secrets:
+  postgres_superuser_password:
+    file: "{{ postgresql_config_dir }}/postgres_password"

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+BACKUP_DIR={{ postgresql_backup_dir | quote }}
+CONTAINER={{ postgresql_backup_container | quote }}
+IMAGE={{ postgresql_image | quote }}
+RETENTION_DAYS={{ postgresql_backup_retention_days | int }}
+LOG_FILE=/var/log/home-server/postgresql-backup.log
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+TMP_DIR="$(mktemp -d "${BACKUP_DIR}/.backup-${STAMP}.XXXXXX")"
+exec 9>/run/lock/home-server-postgresql-backup.lock
+if ! flock -n 9; then
+    rmdir "$TMP_DIR"
+    echo "$(date -Is) status=skipped reason=already-running" >> "$LOG_FILE"
+    exit 0
+fi
+exec >>"$LOG_FILE" 2>&1
+
+cleanup() {
+    local rc=$?
+    rm -rf -- "$TMP_DIR"
+    if (( rc == 0 )); then
+        echo "$(date -Is) status=success set=${STAMP}"
+    else
+        echo "$(date -Is) status=failure set=${STAMP} exit=${rc}"
+    fi
+}
+trap cleanup EXIT
+
+echo "$(date -Is) status=started set=${STAMP}"
+globals_tmp="${TMP_DIR}/globals.sql"
+docker exec "$CONTAINER" sh -ceu \
+  'export PGPASSWORD="$(cat /run/secrets/postgres_superuser_password)"; exec pg_dumpall -w -U postgres --globals-only' \
+  >"$globals_tmp"
+test -s "$globals_tmp"
+chmod 0600 "$globals_tmp"
+mv -- "$globals_tmp" "${BACKUP_DIR}/globals_${STAMP}.sql"
+
+mapfile -t databases < <(docker exec --user postgres "$CONTAINER" psql -U postgres -Atqc \
+    "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname")
+{% raw %}database_count=${#databases[@]}{% endraw %}
+if ((database_count == 0)); then
+    echo "No connectable databases were returned" >&2
+    exit 1
+fi
+
+for database in "${databases[@]}"; do
+    [[ "$database" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "Unexpected database name" >&2; exit 1; }
+    temporary_file="${TMP_DIR}/${database}.dump"
+    final_file="${BACKUP_DIR}/${database}_${STAMP}.dump"
+    docker exec -e "BACKUP_DB=${database}" "$CONTAINER" sh -ceu \
+      'export PGPASSWORD="$(cat /run/secrets/postgres_superuser_password)"; exec pg_dump -w -U postgres -d "$BACKUP_DB" -Fc' \
+      >"$temporary_file"
+    docker run --rm --network none -v "${TMP_DIR}:/backup:ro" --entrypoint pg_restore \
+      "$IMAGE" --list "/backup/${database}.dump" >/dev/null
+    chmod 0600 "$temporary_file"
+    mv -- "$temporary_file" "$final_file"
+    echo "$(date -Is) status=database-success database=${database} bytes=$(stat -c %s "$final_file")"
+done
+
+# Retention only runs after every database dump completed and passed archive validation.
+touch "${BACKUP_DIR}/complete_${STAMP}.set"
+chmod 0600 "${BACKUP_DIR}/complete_${STAMP}.set"
+mapfile -t backup_sets < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'complete_*.set' -printf '%f\n' \
+  | sed -nE 's/^complete_([0-9]{8}T[0-9]{6}Z)\.set$/\1/p' | sort -ru)
+for expired_set in "${backup_sets[@]:${RETENTION_DAYS}}"; do
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name "*_${expired_set}.dump" -delete
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name "globals_${expired_set}.sql" -delete
+    rm -f -- "${BACKUP_DIR}/complete_${expired_set}.set"
+    echo "$(date -Is) status=expired-set-removed set=${expired_set}"
+done
+# Remove incomplete fragments from earlier failed runs only after this new set is complete.
+mapfile -t candidate_sets < <(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name '*.dump' -o -name 'globals_*.sql' \) -printf '%f\n' \
+  | sed -nE 's/.*_([0-9]{8}T[0-9]{6}Z)\.(dump|sql)$/\1/p' | sort -ru)
+for candidate_set in "${candidate_sets[@]}"; do
+    if [[ ! -e "${BACKUP_DIR}/complete_${candidate_set}.set" ]]; then
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name "*_${candidate_set}.dump" -delete
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name "globals_${candidate_set}.sql" -delete
+        echo "$(date -Is) status=incomplete-set-removed set=${candidate_set}"
+    fi
+done
+set_size=$(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name "*_${STAMP}.dump" -o -name "globals_${STAMP}.sql" \) -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+echo "$(date -Is) status=set-verified set=${STAMP} bytes=${set_size} databases=${database_count}"
+if [[ -d /var/lib/node_exporter/textfile_collector ]]; then
+    metric_tmp=$(mktemp /var/lib/node_exporter/textfile_collector/.postgres-backup.XXXXXX)
+    printf 'home_server_postgresql_backup_success_timestamp_seconds %s\n' "$(date +%s)" >"$metric_tmp"
+    chmod 0644 "$metric_tmp"
+    mv -f -- "$metric_tmp" /var/lib/node_exporter/textfile_collector/postgresql_backup.prom
+fi

@@ -1,0 +1,5 @@
+PermitRootLogin {{ ssh_permit_root_login }}
+PubkeyAuthentication yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+AllowUsers {{ ssh_allowed_users | join(' ') }}

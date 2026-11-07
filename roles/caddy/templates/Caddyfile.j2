@@ -1,0 +1,7 @@
+{% for site in website_sites %}
+http://{{ site.hostname }} {
+    encode zstd gzip
+    reverse_proxy {{ site.upstream }}
+}
+
+{% endfor %}

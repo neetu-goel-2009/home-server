@@ -1,0 +1,59 @@
+name: home-monitoring
+services:
+  uptime-kuma:
+    image: "{{ uptime_kuma_image }}"
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "{{ monitoring_bind_ip }}:3001:3001"
+    volumes:
+      - "{{ uptime_kuma_data_dir }}:/app/data"
+    networks: [monitoring, home-db, home-proxy]
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+  prometheus:
+    image: "{{ prometheus_image }}"
+    container_name: prometheus
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d", "--web.listen-address=0.0.0.0:9090"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - "{{ monitoring_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "{{ monitoring_data_dir }}/prometheus:/prometheus"
+    networks: [monitoring]
+    user: "65534:65534"
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+  node-exporter:
+    image: "{{ node_exporter_image }}"
+    container_name: node-exporter
+    restart: unless-stopped
+    command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/host/root", "--collector.textfile.directory=/textfile"]
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - /var/lib/node_exporter/textfile_collector:/textfile:ro
+    networks: [monitoring]
+    mem_limit: 32m
+    pid: host
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+networks:
+  monitoring:
+    internal: true
+  home-db:
+    external: true
+    name: home-db
+  home-proxy:
+    external: true
+    name: home-proxy

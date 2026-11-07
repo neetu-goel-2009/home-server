@@ -1,0 +1,33 @@
+---
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Install Tailscale signing key
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg
+    dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: '0644'
+- name: Configure official Tailscale apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main"
+    filename: tailscale
+    state: present
+- name: Install Tailscale without authenticating a new device
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+- name: Enable Tailscale daemon
+  ansible.builtin.service:
+    name: tailscaled
+    state: started
+    enabled: true
+- name: Remind operator to authenticate only when this is a new device
+  ansible.builtin.debug:
+    msg: "Tailscale is installed. Device login/authorization is intentionally left for the administrator with: sudo tailscale up"

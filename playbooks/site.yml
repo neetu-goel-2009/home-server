@@ -1,0 +1,20 @@
+---
+# Safety-oriented aggregate entry point: discovery only unless a specific stage
+# tag is selected. Prefer the individual playbooks documented in README.md.
+- name: Site entry point (read-only by default)
+  hosts: home_servers
+  gather_facts: true
+  become: false
+  tasks:
+    - name: Explain staged deployment
+      ansible.builtin.debug:
+        msg: >-
+          This aggregate entry point is intentionally read-only. Run a numbered
+          stage playbook after review; do not deploy every role in one run.
+      tags: [always]
+    - name: Show storage and hardware summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "{{ ansible_processor_vcpus }} logical CPUs; {{ ansible_memtotal_mb }} MiB RAM"
+      tags: [always]

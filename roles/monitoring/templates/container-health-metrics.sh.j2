@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+metrics_dir=/var/lib/node_exporter/textfile_collector
+tmp_file=$(mktemp "${metrics_dir}/.containers.XXXXXX")
+trap 'rm -f -- "$tmp_file"' EXIT
+{
+    echo '# HELP home_server_container_running Whether an expected container is running.'
+    echo '# TYPE home_server_container_running gauge'
+    echo '# HELP home_server_container_healthy Container health: 1 healthy, 0 unhealthy, -1 no healthcheck/missing.'
+    echo '# TYPE home_server_container_healthy gauge'
+{% for container in ['home-postgres', 'caddy', 'cloudflared', 'uptime-kuma', 'prometheus', 'node-exporter', 'ollama'] %}
+    name={{ container | quote }}
+    running=0
+    healthy=-1
+    if docker inspect "$name" >/dev/null 2>&1; then
+        state=$(docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' "$name")
+        [[ "$state" == true ]] && running=1
+        health=$(docker inspect -f '{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{% endraw %}' "$name")
+        [[ "$health" == healthy ]] && healthy=1
+        [[ "$health" == unhealthy ]] && healthy=0
+    fi
+    printf 'home_server_container_running{container="%s"} %s\n' "$name" "$running"
+    printf 'home_server_container_healthy{container="%s"} %s\n' "$name" "$healthy"
+{% endfor %}
+{% for site in website_sites %}
+    name={{ site.upstream.split(':')[0] | quote }}
+    running=0
+    healthy=-1
+    if docker inspect "$name" >/dev/null 2>&1; then
+        state=$(docker inspect -f '{% raw %}{{.State.Running}}{% endraw %}' "$name")
+        [[ "$state" == true ]] && running=1
+        health=$(docker inspect -f '{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{% endraw %}' "$name")
+        [[ "$health" == healthy ]] && healthy=1
+        [[ "$health" == unhealthy ]] && healthy=0
+    fi
+    printf 'home_server_container_running{container="%s"} %s\n' "$name" "$running"
+    printf 'home_server_container_healthy{container="%s"} %s\n' "$name" "$healthy"
+{% endfor %}
+} >"$tmp_file"
+chmod 0644 "$tmp_file"
+mv -f -- "$tmp_file" "${metrics_dir}/containers.prom"

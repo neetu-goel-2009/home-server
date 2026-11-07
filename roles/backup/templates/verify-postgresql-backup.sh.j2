@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+IMAGE={{ postgresql_image | quote }}
+archive=${1:?Usage: verify-postgresql-backup.sh /srv/backups/postgresql/DB_TIMESTAMP.dump}
+archive=$(realpath -- "$archive")
+[[ -f "$archive" && "$archive" == {{ postgresql_backup_dir | quote }}/* ]] || { echo "Archive must be under {{ postgresql_backup_dir }}" >&2; exit 2; }
+filename=$(basename -- "$archive")
+[[ "$filename" =~ ^(.+)_([0-9]{8}T[0-9]{6}Z)\.dump$ ]] || { echo "Unexpected archive filename" >&2; exit 2; }
+stamp=${BASH_REMATCH[2]}
+backup_dir=$(dirname -- "$archive")
+globals_file="${backup_dir}/globals_${stamp}.sql"
+[[ -s "$globals_file" ]] || { echo "Matching PostgreSQL globals backup not found" >&2; exit 2; }
+[[ -f "${backup_dir}/complete_${stamp}.set" ]] || { echo "Backup timestamp is not marked as a complete set" >&2; exit 2; }
+
+verify_name="pg-restore-verify-$(date +%s)-$$"
+tmp_dir=$(mktemp -d)
+password_file="${tmp_dir}/password"
+openssl rand -hex 32 >"$password_file"
+chmod 0600 "$password_file"
+cleanup() {
+    docker stop "$verify_name" >/dev/null 2>&1 || true
+    rm -rf -- "$tmp_dir"
+}
+trap cleanup EXIT
+
+docker run -d --rm --name "$verify_name" --network none --memory=768m \
+  --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m \
+  --mount "type=bind,src=${backup_dir},dst=/backup,readonly" \
+  --mount "type=bind,src=${password_file},dst=/run/secrets/verify_password,readonly" \
+  --env POSTGRES_PASSWORD_FILE=/run/secrets/verify_password \
+  --env POSTGRES_USER=restore_admin --env POSTGRES_DB=postgres "$IMAGE" >/dev/null
+
+ready=false
+for _ in $(seq 1 60); do
+    if docker exec "$verify_name" pg_isready -U restore_admin -d postgres >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+done
+[[ "$ready" == true ]] || { docker logs "$verify_name" >&2; echo "Temporary PostgreSQL did not become ready" >&2; exit 1; }
+
+docker exec -i "$verify_name" psql -X -U restore_admin -v ON_ERROR_STOP=1 -f "/backup/globals_${stamp}.sql"
+docker exec "$verify_name" createdb -U restore_admin restore_verify
+docker exec "$verify_name" pg_restore -U restore_admin --exit-on-error -d restore_verify "/backup/${filename}"
+docker exec "$verify_name" psql -X -U restore_admin -d restore_verify -Atqc \
+  "SELECT 'restore_ok', current_database(), count(*) FROM pg_class WHERE relkind IN ('r','p')"
+echo "Restore verification succeeded for ${filename}; temporary database will now be removed."

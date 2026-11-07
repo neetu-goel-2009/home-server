@@ -1,0 +1,61 @@
+---
+- name: Load encrypted application secrets
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../secrets/vault.yml"
+- name: Validate PostgreSQL secret and storage settings
+  ansible.builtin.assert:
+    that:
+      - postgres_superuser_password is defined
+      - postgres_superuser_password | length >= 24
+      - not (postgres_superuser_password.startswith('REPLACE_'))
+      - postgresql_image is match('^postgres:[0-9]+\.[0-9]+-bookworm$')
+      - postgresql_memory_limit is match('^[0-9]+m$')
+    fail_msg: "Set an encrypted password of at least 24 characters and a pinned PostgreSQL image."
+- name: Create PostgreSQL config directory
+  ansible.builtin.file:
+    path: "{{ postgresql_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+- name: Verify PostgreSQL data path does not contain unexpected files before first initialization
+  ansible.builtin.find:
+    paths: "{{ postgresql_data_dir }}"
+    hidden: true
+    file_type: any
+  register: postgresql_existing_files
+- name: Stop if nonempty data directory is not an existing PostgreSQL cluster
+  ansible.builtin.assert:
+    that:
+      - (postgresql_existing_files.matched | int == 0) or (postgresql_existing_files.files | selectattr('path', 'search', '/PG_VERSION$') | list | length > 0)
+    fail_msg: >-
+      PostgreSQL data directory is nonempty and has no PG_VERSION marker.
+      Back up and inspect it manually; this playbook will not initialize over it.
+- name: Create root-readable-only PostgreSQL password secret
+  ansible.builtin.copy:
+    dest: "{{ postgresql_config_dir }}/postgres_password"
+    content: "{{ postgres_superuser_password }}"
+    owner: "{{ postgresql_uid }}"
+    group: "{{ postgresql_uid }}"
+    mode: '0400'
+  no_log: true
+- name: Install PostgreSQL server configuration
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ postgresql_config_dir }}/postgresql.conf"
+    owner: root
+    group: root
+    mode: '0644'
+- name: Install PostgreSQL Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ postgresql_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0640'
+- name: Start PostgreSQL with Docker Compose v2
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgresql_config_dir }}"
+    state: present
+    pull: missing
+  no_log: false

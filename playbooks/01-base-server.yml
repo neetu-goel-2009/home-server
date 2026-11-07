@@ -1,0 +1,10 @@
+---
+- name: Stage 3 - base Ubuntu configuration
+  hosts: home_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+      tags: [base]
+    - role: users
+      tags: [base]

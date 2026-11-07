@@ -1,0 +1,73 @@
+---
+home_server_hostname: home-server
+home_server_timezone: Asia/Kolkata
+
+# Approved directory layout on the existing Ubuntu filesystem only.
+storage_use_existing_filesystem: true
+data_mount_point: /srv
+storage_paths:
+  app_data: "{{ data_mount_point }}/data/apps"
+  postgresql: "{{ data_mount_point }}/data/postgresql"
+  postgresql_backups: "{{ data_mount_point }}/backups/postgresql"
+  docker: "{{ data_mount_point }}/docker"
+  ollama: "{{ data_mount_point }}/data/ollama"
+  application_logs: /var/log/home-server
+
+docker_apt_repository: https://download.docker.com/linux/ubuntu
+docker_supported_ubuntu_releases: [noble, resolute]
+docker_data_root: "{{ storage_paths.docker }}"
+docker_networks:
+  - {name: home-proxy, internal: false}
+  - {name: home-db, internal: true}
+
+postgresql_version: "17.11-bookworm"
+postgresql_image: "postgres:{{ postgresql_version }}"
+postgresql_container_name: home-postgres
+postgresql_data_dir: "{{ storage_paths.postgresql }}"
+postgresql_config_dir: /etc/home-server/postgresql
+postgresql_memory_limit: 384m
+postgresql_shared_buffers: 96MB
+postgresql_effective_cache_size: 1536MB
+postgresql_max_connections: 20
+postgresql_uid: 999
+postgresql_health_interval: 30s
+postgresql_backup_dir: "{{ storage_paths.postgresql_backups }}"
+postgresql_backup_time: "02:30"
+postgresql_backup_retention_days: 30
+postgresql_backup_container: home-postgres
+
+# Cloudflare account login, tunnel creation and DNS remain manual.
+cloudflare_tunnel_enabled: false
+cloudflare_tunnel_config_dir: /etc/home-server/cloudflared
+cloudflare_tunnel_image: cloudflare/cloudflared:2026.10.7
+cloudflare_tunnel_token_file: /etc/home-server/cloudflared/tunnel-token
+cloudflare_tunnel_ingress:
+  - {hostname: 365code.in, service: "http://caddy:80"}
+  - {hostname: harimaati.com, service: "http://caddy:80"}
+
+website_sites:
+  - {hostname: 365code.in, upstream: "site1:80", image: nginx:1.31.8-alpine}
+  - {hostname: harimaati.com, upstream: "site2:80", image: nginx:1.31.8-alpine}
+caddy_image: caddy:2.11.9-alpine
+caddy_config_dir: /etc/home-server/caddy
+
+monitoring_bind_ip: 100.67.188.50
+uptime_kuma_image: louislam/uptime-kuma:2.5.3-slim
+uptime_kuma_data_dir: /srv/data/uptime-kuma
+node_exporter_image: prom/node-exporter:v1.12.1
+prometheus_image: prom/prometheus:v3.16.0
+monitoring_config_dir: /etc/home-server/monitoring
+monitoring_data_dir: /srv/data/monitoring
+
+ollama_enabled: false
+ollama_image: ollama/ollama:0.40.15
+ollama_data_dir: "{{ storage_paths.ollama }}"
+ollama_bind_address: 127.0.0.1
+ollama_port: 11434
+
+ssh_allowed_users: [superadmin]
+ssh_disable_password_authentication: false
+superadmin_user: superadmin
+superadmin_ssh_public_key: ""
+tailscale_interface: tailscale0
+ufw_enable: true

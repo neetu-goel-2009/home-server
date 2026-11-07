@@ -1,0 +1,60 @@
+---
+- name: Validate supported target distribution
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_release in ['noble', 'resolute']
+    fail_msg: "Supports Ubuntu 24.04/26.04. Detected {{ ansible_distribution }} {{ ansible_distribution_version }}."
+- name: Refresh package metadata and apply safe upgrades
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+    upgrade: safe
+- name: Install base packages
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, wget, jq, unzip, nano, htop, rsync, git, openssh-server, unattended-upgrades, logrotate, systemd-timesyncd, openssl]
+    state: present
+- name: Set system hostname
+  ansible.builtin.hostname:
+    name: "{{ home_server_hostname }}"
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ home_server_timezone }}"
+- name: Enable system resolver
+  ansible.builtin.service:
+    name: systemd-resolved
+    state: started
+    enabled: true
+- name: Enable OpenSSH server
+  ansible.builtin.service:
+    name: ssh
+    state: started
+    enabled: true
+- name: Enable time synchronization
+  ansible.builtin.service:
+    name: systemd-timesyncd
+    state: started
+    enabled: true
+- name: Configure automatic security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+- name: Configure home server log rotation
+  ansible.builtin.template:
+    src: home-server-logrotate.j2
+    dest: /etc/logrotate.d/home-server
+    owner: root
+    group: root
+    mode: '0644'
+- name: Configure conservative process limits
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/90-home-server.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: "* soft nofile 65535\n* hard nofile 65535\n"

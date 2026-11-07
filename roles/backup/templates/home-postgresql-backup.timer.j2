@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* {{ postgresql_backup_time }}:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=home-postgresql-backup.service
+
+[Install]
+WantedBy=timers.target

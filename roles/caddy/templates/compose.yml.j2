@@ -1,0 +1,51 @@
+name: home-caddy
+services:
+  caddy:
+    image: "{{ caddy_image }}"
+    container_name: caddy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /data
+      - /config
+    volumes:
+      - "{{ caddy_config_dir }}/Caddyfile:/etc/caddy/Caddyfile:ro"
+    networks: [home-proxy]
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+  {% for site in website_sites %}
+  {{ site.upstream.split(':')[0] }}:
+    image: "{{ site.image }}"
+    container_name: "{{ site.upstream.split(':')[0] }}"
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    volumes:
+      - "{{ storage_paths.app_data }}/{{ site.upstream.split(':')[0] }}:/usr/share/nginx/html:ro"
+    networks: [home-proxy]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+  {% endfor %}
+networks:
+  home-proxy:
+    external: true
+    name: home-proxy

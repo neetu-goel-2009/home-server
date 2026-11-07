@@ -1,0 +1,68 @@
+---
+- name: Load encrypted Cloudflare secret only when tunnel deployment is enabled
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../secrets/vault.yml"
+  when: cloudflare_tunnel_enabled | bool
+- name: Validate Cloudflare tunnel credentials before enabling deployment
+  ansible.builtin.assert:
+    that:
+      - cloudflare_tunnel_token is defined
+      - cloudflare_tunnel_token | length > 32
+      - not (cloudflare_tunnel_token.startswith('REPLACE_'))
+    fail_msg: "Create and authorize a Cloudflare Tunnel in your account, then put its token in Ansible Vault."
+  when: cloudflare_tunnel_enabled | bool
+- name: Create Cloudflare config directory
+  ansible.builtin.file:
+    path: "{{ cloudflare_tunnel_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  when: cloudflare_tunnel_enabled | bool
+- name: Write Cloudflare tunnel token without exposing it in task output
+  ansible.builtin.copy:
+    dest: "{{ cloudflare_tunnel_token_file }}"
+    content: "{{ cloudflare_tunnel_token }}"
+    owner: '65532'
+    group: '65532'
+    mode: '0400'
+  no_log: true
+  when: cloudflare_tunnel_enabled | bool
+- name: Render Cloudflare Tunnel Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ cloudflare_tunnel_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0640'
+  when: cloudflare_tunnel_enabled | bool
+- name: Render Cloudflare dashboard route reference
+  ansible.builtin.template:
+    src: ingress-reference.yml.j2
+    dest: "{{ cloudflare_tunnel_config_dir }}/ingress-reference.yml"
+    owner: root
+    group: root
+    mode: '0640'
+  when: cloudflare_tunnel_enabled | bool
+- name: Start remotely managed Cloudflare Tunnel
+  community.docker.docker_compose_v2:
+    project_src: "{{ cloudflare_tunnel_config_dir }}"
+    state: present
+    pull: missing
+  when: cloudflare_tunnel_enabled | bool
+- name: Check for a previously rendered Cloudflare Compose project
+  ansible.builtin.stat:
+    path: "{{ cloudflare_tunnel_config_dir }}/compose.yml"
+  register: cloudflare_compose_file
+  when: not (cloudflare_tunnel_enabled | bool)
+- name: Stop previously deployed tunnel when explicitly disabled
+  community.docker.docker_compose_v2:
+    project_src: "{{ cloudflare_tunnel_config_dir }}"
+    state: absent
+  when:
+    - not (cloudflare_tunnel_enabled | bool)
+    - cloudflare_compose_file.stat.exists | default(false)
+- name: Leave Cloudflare Tunnel stopped until account setup is complete
+  ansible.builtin.debug:
+    msg: "cloudflare_tunnel_enabled is false. Configure the tunnel and DNS in Cloudflare, then set the variable true."
+  when: not (cloudflare_tunnel_enabled | bool)

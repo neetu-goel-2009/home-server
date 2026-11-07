@@ -1,0 +1,5 @@
+---
+ssh_disable_password_authentication: false
+ssh_permit_root_login: prohibit-password
+tailscale_interface: tailscale0
+ufw_enable: true

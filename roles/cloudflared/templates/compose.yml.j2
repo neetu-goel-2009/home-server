@@ -1,0 +1,21 @@
+name: home-cloudflared
+services:
+  cloudflared:
+    image: "{{ cloudflare_tunnel_image }}"
+    container_name: cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
+    secrets: [tunnel_token]
+    networks: [home-proxy]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+networks:
+  home-proxy:
+    external: true
+    name: home-proxy
+secrets:
+  tunnel_token:
+    file: "{{ cloudflare_tunnel_token_file }}"

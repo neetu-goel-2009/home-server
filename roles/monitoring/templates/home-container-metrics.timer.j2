@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Docker health metrics every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=home-container-metrics.service
+
+[Install]
+WantedBy=timers.target

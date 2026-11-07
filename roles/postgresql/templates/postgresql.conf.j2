@@ -1,0 +1,12 @@
+listen_addresses = '*'
+password_encryption = 'scram-sha-256'
+max_connections = {{ postgresql_max_connections }}
+shared_buffers = '{{ postgresql_shared_buffers }}'
+effective_cache_size = '{{ postgresql_effective_cache_size }}'
+work_mem = '4MB'
+maintenance_work_mem = '64MB'
+max_wal_size = '1GB'
+checkpoint_completion_target = 0.9
+log_destination = 'stderr'
+logging_collector = off
+log_min_duration_statement = 1000

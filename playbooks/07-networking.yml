@@ -1,0 +1,10 @@
+---
+- name: Stage 8 - configure Caddy and Cloudflare Tunnel
+  hosts: home_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: caddy
+      tags: [networking, caddy]
+    - role: cloudflared
+      tags: [networking, cloudflared]

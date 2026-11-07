@@ -1,0 +1,97 @@
+---
+- name: Refuse unsupported Docker repository suite
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_release in docker_supported_ubuntu_releases
+    fail_msg: "Docker apt repository is not approved for {{ ansible_distribution_release }}."
+- name: Check for Docker daemon settings that this project would replace
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: existing_docker_daemon_config
+- name: Read existing Docker daemon settings when present
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: existing_docker_daemon_json
+  when: existing_docker_daemon_config.stat.exists
+- name: Refuse to overwrite unmanaged Docker daemon configuration
+  ansible.builtin.assert:
+    that:
+      - "(existing_docker_daemon_json.content | b64decode | from_json) == {'data-root': docker_data_root, 'log-driver': 'json-file', 'log-opts': {'max-size': '10m', 'max-file': '3'}, 'live-restore': true}"
+    fail_msg: >-
+      /etc/docker/daemon.json already contains settings not matching this project.
+      Merge and review them manually before rerunning Docker stage.
+  when: existing_docker_daemon_config.stat.exists
+- name: Check for existing Docker data outside the configured data root
+  ansible.builtin.command: find /var/lib/docker -mindepth 1 -maxdepth 1 -print -quit
+  register: default_docker_data
+  failed_when: false
+  changed_when: false
+- name: Refuse to strand existing Docker data
+  ansible.builtin.assert:
+    that: default_docker_data.stdout | length == 0
+    fail_msg: >-
+      /var/lib/docker contains data. Move it with a reviewed maintenance plan before
+      changing Docker's data-root; this playbook never migrates Docker storage.
+- name: Ensure apt keyrings and Docker data directory exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/apt/keyrings, mode: '0755'}
+    - {path: "{{ docker_data_root }}", mode: '0711'}
+- name: Install Docker official repository signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: '0644'
+- name: Configure Docker official apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: ["{{ docker_apt_repository }}"]
+    suites: ["{{ ansible_distribution_release }}"]
+    components: [stable]
+    architectures: ["{{ ansible_architecture | replace('x86_64', 'amd64') }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
+    state: present
+    enabled: true
+- name: Install Docker Engine and Compose v2 plugin
+  ansible.builtin.apt:
+    update_cache: true
+    name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+    state: present
+- name: Configure Docker storage and log rotation
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Docker
+- name: Apply Docker daemon configuration before network setup
+  ansible.builtin.meta: flush_handlers
+- name: Enable Docker at boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+- name: Inspect application networks
+  ansible.builtin.command: "docker network inspect {{ item.name }}"
+  loop: "{{ docker_networks }}"
+  register: docker_network_inspection
+  changed_when: false
+  failed_when: false
+- name: Create missing application networks
+  ansible.builtin.command: >-
+    docker network create
+    {% if item.item.internal | bool %}--internal{% endif %}
+    {{ item.item.name }}
+  loop: "{{ docker_network_inspection.results }}"
+  when: item.rc != 0 and not ansible_check_mode
+  changed_when: true

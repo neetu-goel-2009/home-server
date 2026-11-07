@@ -1,0 +1,49 @@
+---
+- name: Keep Ollama disabled until hardware suitability and model choice are approved
+  ansible.builtin.debug:
+    msg: "Ollama is disabled. This host has 3.2 GiB RAM, a two-core i3-2120 and integrated graphics; no model will be downloaded."
+  when: not (ollama_enabled | bool)
+- name: Create Ollama persistent directory
+  ansible.builtin.file:
+    path: "{{ ollama_data_dir }}"
+    state: directory
+    owner: '1000'
+    group: '1000'
+    mode: '0750'
+  when: ollama_enabled | bool
+- name: Ensure Ollama Compose directory exists
+  ansible.builtin.file:
+    path: /etc/home-server
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: ollama_enabled | bool
+- name: Install Ollama Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /etc/home-server/ollama-compose.yml
+    owner: root
+    group: root
+    mode: '0640'
+  when: ollama_enabled | bool
+- name: Deploy Ollama without downloading any model
+  community.docker.docker_compose_v2:
+    project_src: /etc/home-server
+    files: [ollama-compose.yml]
+    state: present
+    pull: missing
+  when: ollama_enabled | bool
+- name: Check for an existing Ollama Compose project when disabled
+  ansible.builtin.stat:
+    path: /etc/home-server/ollama-compose.yml
+  register: ollama_compose_file
+  when: not (ollama_enabled | bool)
+- name: Stop Ollama container when explicitly disabled without deleting model data
+  community.docker.docker_compose_v2:
+    project_src: /etc/home-server
+    files: [ollama-compose.yml]
+    state: absent
+  when:
+    - not (ollama_enabled | bool)
+    - ollama_compose_file.stat.exists | default(false)

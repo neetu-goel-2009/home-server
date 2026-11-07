@@ -1,0 +1,30 @@
+# Ansible runtime files
+*.retry
+*.log
+*.log.*
+
+# Encrypted secrets are versioned; plaintext vaults and keys are not.
+secrets/vault.yml
+secrets/vault-plaintext.yml
+secrets/vault-password-file
+*.vault-pass
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local connection and generated artifacts
+.venv/
+venv/
+__pycache__/
+.ansible/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment-specific files
+.env
+.env.*
+!.env.example
+inventory/hosts.local.yml

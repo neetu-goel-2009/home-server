@@ -1,0 +1,14 @@
+[Unit]
+Description=Collect Docker container health metrics
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/home-server-container-metrics
+User=root
+Group=root
+UMask=0022
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

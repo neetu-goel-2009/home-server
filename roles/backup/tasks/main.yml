@@ -1,0 +1,42 @@
+---
+- name: Validate backup retention and schedule
+  ansible.builtin.assert:
+    that:
+      - postgresql_backup_retention_days | int >= 1
+      - postgresql_backup_retention_days | int <= 30
+      - postgresql_backup_time is match('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    fail_msg: "Backup retention must be 1-30 daily sets and time must use HH:MM."
+- name: Install PostgreSQL backup script
+  ansible.builtin.template:
+    src: postgresql-backup.sh.j2
+    dest: /usr/local/sbin/home-server-postgresql-backup
+    owner: root
+    group: root
+    mode: '0700'
+- name: Install systemd backup service
+  ansible.builtin.template:
+    src: home-postgresql-backup.service.j2
+    dest: /etc/systemd/system/home-postgresql-backup.service
+    owner: root
+    group: root
+    mode: '0644'
+- name: Install manual temporary restore verifier
+  ansible.builtin.template:
+    src: verify-postgresql-backup.sh.j2
+    dest: /usr/local/sbin/verify-home-server-postgresql-backup
+    owner: root
+    group: root
+    mode: '0700'
+- name: Install daily systemd backup timer
+  ansible.builtin.template:
+    src: home-postgresql-backup.timer.j2
+    dest: /etc/systemd/system/home-postgresql-backup.timer
+    owner: root
+    group: root
+    mode: '0644'
+- name: Enable daily PostgreSQL backup timer
+  ansible.builtin.systemd:
+    name: home-postgresql-backup.timer
+    daemon_reload: true
+    enabled: true
+    state: started

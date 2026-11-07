@@ -1,0 +1,45 @@
+---
+- name: Read-only host discovery
+  hosts: home_servers
+  gather_facts: true
+  become: false
+  tasks:
+    - name: Collect block devices and filesystem identifiers
+      ansible.builtin.command: >-
+        lsblk -e7 -o NAME,MODEL,SERIAL,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS,PTTYPE
+      register: discovery_lsblk
+      changed_when: false
+
+    - name: Collect mounted filesystem capacity
+      ansible.builtin.command: df -hT
+      register: discovery_df
+      changed_when: false
+
+    - name: Collect network addresses
+      ansible.builtin.command: ip -brief address
+      register: discovery_ip
+      changed_when: false
+
+    - name: Read active services and installed tools
+      ansible.builtin.shell: |
+        printf 'ssh='; systemctl is-active ssh 2>/dev/null || true
+        printf 'docker='; systemctl is-active docker 2>/dev/null || true
+        printf 'tailscaled='; systemctl is-active tailscaled 2>/dev/null || true
+        printf 'docker_cli='; command -v docker || true
+        printf 'ollama_cli='; command -v ollama || true
+      args:
+        executable: /bin/bash
+      register: discovery_services
+      changed_when: false
+
+    - name: Print discovery summary
+      ansible.builtin.debug:
+        msg:
+          - "OS={{ ansible_distribution }} {{ ansible_distribution_version }} ({{ ansible_distribution_release }})"
+          - "CPU={{ ansible_processor[2] | default('unknown') }}; logical CPUs={{ ansible_processor_vcpus }}"
+          - "RAM={{ ansible_memtotal_mb }} MiB"
+          - "Kernel={{ ansible_kernel }}"
+          - "Devices:\n{{ discovery_lsblk.stdout }}"
+          - "Filesystems:\n{{ discovery_df.stdout }}"
+          - "Network:\n{{ discovery_ip.stdout }}"
+          - "Services/tools:\n{{ discovery_services.stdout }}"

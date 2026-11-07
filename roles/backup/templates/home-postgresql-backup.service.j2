@@ -1,0 +1,19 @@
+[Unit]
+Description=Back up PostgreSQL databases on the home server
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/home-server-postgresql-backup
+User=root
+Group=root
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths={{ postgresql_backup_dir }} /var/log/home-server /run/lock /var/lib/node_exporter/textfile_collector

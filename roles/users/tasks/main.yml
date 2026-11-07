@@ -1,0 +1,22 @@
+---
+- name: Verify the configured administration account exists
+  ansible.builtin.command: "getent passwd {{ superadmin_user }}"
+  changed_when: false
+- name: Ensure SSH directory exists when a public key is supplied
+  ansible.builtin.file:
+    path: "/home/{{ superadmin_user }}/.ssh"
+    state: directory
+    owner: "{{ superadmin_user }}"
+    group: "{{ superadmin_user }}"
+    mode: '0700'
+  when: superadmin_ssh_public_key | length > 0
+- name: Install administrator public key when supplied
+  ansible.builtin.lineinfile:
+    path: "/home/{{ superadmin_user }}/.ssh/authorized_keys"
+    line: "{{ superadmin_ssh_public_key }}"
+    create: true
+    owner: "{{ superadmin_user }}"
+    group: "{{ superadmin_user }}"
+    mode: '0600'
+    state: present
+  when: superadmin_ssh_public_key | length > 0

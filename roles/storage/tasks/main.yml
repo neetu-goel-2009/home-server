@@ -1,0 +1,42 @@
+---
+- name: Require the approved existing-filesystem layout
+  ansible.builtin.assert:
+    that:
+      - storage_use_existing_filesystem | bool
+      - storage_paths.postgresql == '/srv/data/postgresql'
+      - storage_paths.postgresql_backups == '/srv/backups/postgresql'
+    fail_msg: >-
+      This role only creates directories under the approved existing filesystem.
+      It never formats, partitions, resizes, mounts or removes storage.
+- name: Inspect existing PostgreSQL data directory
+  ansible.builtin.stat:
+    path: "{{ storage_paths.postgresql }}"
+  register: storage_pg_stat
+- name: Count existing PostgreSQL data entries
+  ansible.builtin.find:
+    paths: "{{ storage_paths.postgresql }}"
+    hidden: true
+    file_type: any
+  register: storage_pg_entries
+  when: storage_pg_stat.stat.exists
+- name: Refuse to change ownership on unfamiliar PostgreSQL data
+  ansible.builtin.assert:
+    that:
+      - not storage_pg_stat.stat.exists or (storage_pg_entries.matched | int == 0) or (storage_pg_stat.stat.uid == storage_postgresql_uid | int and storage_pg_stat.stat.gid == storage_postgresql_uid | int and storage_pg_stat.stat.mode == '0700')
+    fail_msg: >-
+      PostgreSQL path already contains data with unexpected ownership or mode.
+      Inspect and back it up before changing directory permissions.
+- name: Ensure service directories exist with restricted access
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ storage_paths.app_data }}", owner: root, group: root, mode: '0750'}
+    - {path: "{{ storage_paths.postgresql }}", owner: "{{ storage_postgresql_uid }}", group: "{{ storage_postgresql_uid }}", mode: '0700'}
+    - {path: "{{ storage_paths.postgresql_backups }}", owner: root, group: root, mode: '0700'}
+    - {path: "{{ storage_paths.docker }}", owner: root, group: root, mode: '0711'}
+    - {path: "{{ storage_paths.ollama }}", owner: root, group: root, mode: '0750'}
+    - {path: "{{ storage_paths.application_logs }}", owner: root, group: adm, mode: '0750'}

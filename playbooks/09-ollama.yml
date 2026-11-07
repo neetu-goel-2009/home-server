@@ -1,0 +1,8 @@
+---
+- name: Stage 10 - deploy Ollama only after hardware review
+  hosts: home_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: ollama
+      tags: [ollama]

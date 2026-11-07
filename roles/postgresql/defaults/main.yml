@@ -1,0 +1,5 @@
+---
+postgresql_memory_limit: 384m
+postgresql_shared_buffers: 96MB
+postgresql_effective_cache_size: 1536MB
+postgresql_max_connections: 20

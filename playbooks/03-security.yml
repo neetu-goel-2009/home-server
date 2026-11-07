@@ -1,0 +1,10 @@
+---
+- name: Stage 4 - secure remote administration
+  hosts: home_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: security
+      tags: [security]
+    - role: tailscale
+      tags: [security, tailscale]
